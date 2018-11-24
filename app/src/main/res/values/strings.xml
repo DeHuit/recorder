@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">SpeechRecorder</string>
+    <string name="nom_enregistrement">nom_enregistrement</string>
+    <string name="convert_to_cvs">convert to cvs</string>
+</resources>
