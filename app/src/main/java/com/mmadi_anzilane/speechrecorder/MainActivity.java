@@ -1,6 +1,7 @@
 package com.mmadi_anzilane.speechrecorder;
 
 import android.Manifest;
+import android.content.DialogInterface;
 import android.content.pm.PackageManager;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
@@ -10,12 +11,15 @@ import android.os.Environment;
 import android.support.annotation.NonNull;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.content.ContextCompat;
+import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
+import android.text.InputType;
 import android.util.Log;
 import android.view.View;
+import android.widget.Button;
 import android.widget.EditText;
-import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.Toast;
 
 import java.io.IOException;
@@ -28,16 +32,6 @@ import java.io.OutputStream;
 
 
 public class MainActivity extends AppCompatActivity {
-
-
-  //mes composants graphique
-  ImageButton mRecord;
-  ImageButton mSave;
-  ImageButton mPlay;
-  ImageButton mDelete;
-  ImageButton mDoc;
-  EditText mFile;
-  EditText start;
 
   /*********************************************************************************
   ****************** BACKEND FUNCTIONS : WRITE, CONVERT & SAVE ********************
@@ -114,7 +108,8 @@ public class MainActivity extends AppCompatActivity {
   private Thread recordingThread = null;
 
 
-  private void recordStart() {
+  private boolean recordStart() {
+    deleteTemps(); //Cleanup
     bufferSize = AudioRecord.getMinBufferSize(RECORDER_SAMPLERATE, RECORDER_CHANNELS, RECORDER_AUDIO_ENCODING);
     mRecorder = new AudioRecord(MediaRecorder.AudioSource.MIC, RECORDER_SAMPLERATE, RECORDER_CHANNELS, RECORDER_AUDIO_ENCODING, bufferSize);
     mRecorderPlayable = new MediaRecorder();
@@ -122,13 +117,10 @@ public class MainActivity extends AppCompatActivity {
     mRecorderPlayable.setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP);
     mRecorderPlayable.setOutputFile(path + AUDIO_RECORDER_3GP_TEMP_FILE);
     mRecorderPlayable.setAudioEncoder(MediaRecorder.AudioEncoder.AMR_NB);
-
+    //2 records in parallel : to raw (in bytes) and to 3gp (to play)
     recordingThread = new Thread(new Runnable() {
-
       @Override
-      public void run() {
-        writeAudioDataToFile();
-      }
+      public void run() { writeAudioDataToFile(); }
     },"Recorder Thread");
 
     try {
@@ -139,6 +131,8 @@ public class MainActivity extends AppCompatActivity {
 
     mRecorderPlayable.start();
     recordingThread.start();
+
+    return true;
   }
 
   private void recordStop() {
@@ -163,32 +157,38 @@ public class MainActivity extends AppCompatActivity {
     //deleteTemps();
   }
 
-  public void record() {
+  public void onRecord(View v) {
     if (checkPermissions()) {
-      if (!recordActive) {
-        start.setText("start recorder");
-        recordActive = true;
-        conflitAction = true;
-        recordStart();
-      } else {
-        recordActive = false;
-        conflitAction = false;
-        start.setText("stop recorder");
-        start.refreshDrawableState();
-        recordStop();
+      if (canUseRecordButton) {
+        if (!recordActive) {
+          recordActive = true;
+          buttonRecord.setImageResource(R.drawable.mic_on_big);
+          deactivatePreviewButtons();
+          Toast.makeText(this, "Recording...", Toast.LENGTH_LONG).show();
+          recordActive = recordStart();
+        } else {
+          recordActive = false;
+          buttonRecord.setImageResource(R.drawable.mic_off_big);
+          activatePreviewButtons();
+          recordStop();
+          canUseRecordButton = true;
+          Toast.makeText(this, "Record finished", Toast.LENGTH_LONG).show();
+        }
       }
     } else
       Toast.makeText(this, "No access to mic", Toast.LENGTH_LONG).show();
   }
 
+  /* Functions necessary to store and convert files*/
   private void deleteTemps() {
     File file = new File(path + AUDIO_RECORDER__RAW_TEMP_FILE);
-    file.delete();
+    if (file.exists())
+      file.delete();
     file = new File(path + AUDIO_RECORDER_3GP_TEMP_FILE);
-    file.delete();
+    if (file.exists())
+      file.delete();
   }
 
-  /* Functions nesessary to store and convert files*/
   private void writeAudioDataToFile(){
     byte data[] = new byte[bufferSize];
     String filename = path + AUDIO_RECORDER__RAW_TEMP_FILE;
@@ -323,21 +323,34 @@ public class MainActivity extends AppCompatActivity {
   }
 
 
-
-
   /****************** PLAYING RECORDS ********************/
   private boolean playerActive = false;
 
-  private void startPlaying() {
+  private boolean startPlaying() {
     mPlayer = new MediaPlayer();
     try {
       mPlayer.setDataSource(path + AUDIO_RECORDER_3GP_TEMP_FILE);
+      setEndORecordListener();
       mPlayer.prepare();
       mPlayer.start();
     } catch (IOException e) {
       Toast.makeText(this, "No record to Play", Toast.LENGTH_LONG).show();
-      playerActive = false;
+      return false;
     }
+    return true;
+  }
+
+  //Stop playing at the end of the record
+  void setEndORecordListener() {
+    mPlayer.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
+      @Override
+      public void onCompletion(MediaPlayer mp) {
+        playerActive = false;
+        buttonPlay.setImageResource(R.drawable.play);
+        stopPlaying();
+        activateRecordButtons();
+      }
+    });
   }
 
   private void stopPlaying() {
@@ -345,19 +358,19 @@ public class MainActivity extends AppCompatActivity {
     mPlayer = null;
   }
 
-  public void play() {
-    if (!playerActive) {
-      playerActive = true;
-      noRecord = true;
-      start.setText("play recorder");
-      start.refreshDrawableState();
-      startPlaying();
-    } else {
-      playerActive = false;
-      noRecord = false;
-      start.setText("pause recorder");
-      start.refreshDrawableState();
-      stopPlaying();
+  public void onPlay(View v) {
+    if (canUsePreviewButton) { //if buffer contain record
+      if (!playerActive) {
+        playerActive = true;
+        buttonPlay.setImageResource(R.drawable.stop);
+        deactivateRecordButtons();
+        playerActive = startPlaying();
+      } else {
+        playerActive = false;
+        buttonPlay.setImageResource(R.drawable.play);
+        stopPlaying();
+        activateRecordButtons();
+      }
     }
   }
 
@@ -365,6 +378,41 @@ public class MainActivity extends AppCompatActivity {
    ****************** FRONTEND FUNCTIONS : FILES, WINDOWS, LISTENERS ***************
    ****************** FAIT PAR           Mmadi Anzilane          *******************
    *********************************************************************************/
+
+  //mes composants graphique
+  ImageView buttonRecord;
+  ImageView buttonSave;
+  ImageView buttonPlay;
+  ImageView buttonDelete;
+  Button buttonShowRecords;
+
+
+  /* Button switchers */
+  boolean canUseRecordButton = true; //flag "can u use record button"
+  boolean canUsePreviewButton = false; //flag "can u use play and save buttons"
+
+  private void deactivateRecordButtons() {
+    canUseRecordButton = false;
+    buttonRecord.setImageResource(R.drawable.mic_unaccessible);
+  }
+
+  private void activateRecordButtons() {
+    canUseRecordButton = true;
+    buttonRecord.setImageResource(R.drawable.mic_off_big);
+  }
+
+  private void deactivatePreviewButtons() {
+    buttonPlay.setImageResource(R.drawable.play_unaccessible);
+    buttonSave.setImageResource(R.drawable.save_unaccessible);
+    canUsePreviewButton = false;
+  }
+
+  private void activatePreviewButtons() {
+    buttonPlay.setImageResource(R.drawable.play);
+    buttonSave.setImageResource(R.drawable.save);
+    canUsePreviewButton = true;
+  }
+
 
   /****************** LISTENERS ********************/
   @Override
@@ -386,25 +434,22 @@ public class MainActivity extends AppCompatActivity {
       finish();
     }
 
-    //saisie
-    mFile = findViewById(R.id.fileName);
-    //
-    start = findViewById(R.id.start);
     //enregistrement
-    mRecord = findViewById(R.id.record);
-    onRecord();
+    buttonRecord = findViewById(R.id.record);
 
     //button save
-    mSave = findViewById(R.id.save);
-    onSave();
+    buttonSave = findViewById(R.id.save);
 
     //button play
-    mPlay = findViewById(R.id.play);
-    onPlay();
+    buttonPlay = findViewById(R.id.play);
 
     //button delet
-    mDelete = findViewById(R.id.delete);
-    onDelete();
+    //buttonDelete = findViewById(R.id.delete);
+
+    //Shot recorded files
+    buttonShowRecords = findViewById(R.id.showRecords);
+
+    setListeners();
 
   }
   /****************** LISTENERS ********************/
@@ -420,83 +465,134 @@ public class MainActivity extends AppCompatActivity {
       mPlayer.release();
       mPlayer = null;
     }
+    deleteTemps();
   }
 
   //debute l'enregistrement
-  private void onRecord() {
-    mRecord.setOnClickListener(new View.OnClickListener() {
+  private void setListeners() {
+
+    buttonRecord.setOnClickListener(new View.OnClickListener() {
       @Override
-      public void onClick(View v) {
-        if (!noRecord)
-          record();
-      }
+      public void onClick(View v) { onRecord(v); }
     });
-  }
 
-  //play
-  private void onPlay() {
-    mPlay.setOnClickListener(new View.OnClickListener() {
+    buttonPlay.setOnClickListener(new View.OnClickListener() {
       @Override
-      public void onClick(View v) {
-        if(!conflitAction)
-          play();
-      }
+      public void onClick(View v) { onPlay(v); }
     });
-  }
 
-  //save
-  public void onSave() {
-
-    mSave.setOnClickListener(new View.OnClickListener() {
+    buttonSave.setOnClickListener(new View.OnClickListener() {
       @Override
       public void onClick(View v) {
-        if(!conflitAction) {
-          mFileName = mFile.getText().toString();
-          if (mFileName.equals("")) {
-            Log.e("errors","Enter your filename");
-            return;
-          } else {
-            File f = new File(path + mFileName);
-            if (f.exists()) {
-              Log.e("errors","File already exists!");
-              return;
-            }
-          }
-          InputStream is = null;
-          OutputStream os = null;
-          try {
-            is = new FileInputStream(path + AUDIO_RECORDER_WAV_TEMP_FILE);
-            os = new FileOutputStream(path + mFileName + AUDIO_RECORDER_EXTENTION);
-            byte[] buffer = new byte[1024];
-            int length;
-            while ((length = is.read(buffer)) > 0) {
-              os.write(buffer, 0, length);
-            }
-          } catch (IOException e) {
-            e.printStackTrace();
-          } finally {
-            try {
-              is.close();
-              os.close();
-            } catch (IOException e) {
-              e.printStackTrace();
-            }
-          }
+        if (canUsePreviewButton) { //if buffer contain record
+          savingDialog();
         }
       }
     });
-  }
 
-  //delete
-  private void onDelete() {
-    mDelete.setOnClickListener(new View.OnClickListener() {
+
+    buttonShowRecords.setOnClickListener(new View.OnClickListener() {
       @Override
       public void onClick(View v) {
-        if (!conflitAction) {
-          deleteTemps();
-        }
+        showFilesDialog();
       }
     });
+  }
+
+  private String userInout = "";
+  boolean decidedToSave = false;
+
+  /* SAVING DIALOG */
+  public void savingDialog() {
+
+    AlertDialog.Builder builder = new AlertDialog.Builder(this);
+    builder.setTitle("Enter file name");
+
+    // Set up the input
+    final EditText input = new EditText(this);
+    // Specify the type of input expected; this, for example, sets the input as a password, and will mask the text
+    input.setInputType(InputType.TYPE_CLASS_TEXT);
+    builder.setView(input);
+
+    // Set up the buttons
+    builder.setPositiveButton("Save", new DialogInterface.OnClickListener() {
+      @Override
+      public void onClick(DialogInterface dialog, int which) {
+        userInout = input.getText().toString();
+        mFileName = userInout;
+        saveFinalResult();
+      }
+    });
+    builder.setNegativeButton("Cancel", new DialogInterface.OnClickListener() {
+      @Override
+      public void onClick(DialogInterface dialog, int which) {
+        dialog.cancel();
+      }
+    });
+
+    builder.show();
+  }
+
+  private void saveFinalResult() {
+    if (mFileName.equals("")) {
+      Log.e("errors","Enter your filename");
+      return;
+    } else {
+      File f = new File(path + mFileName);
+      if (f.exists()) {
+        Log.e("errors","File already exists!");
+        return;
+      }
+    }
+    InputStream is = null;
+    OutputStream os = null;
+    try {
+      is = new FileInputStream(path + AUDIO_RECORDER_WAV_TEMP_FILE);
+      os = new FileOutputStream(path + mFileName + AUDIO_RECORDER_EXTENTION);
+      byte[] buffer = new byte[1024];
+      int length;
+      while ((length = is.read(buffer)) > 0) {
+        os.write(buffer, 0, length);
+      }
+      Toast.makeText(this, mFileName + AUDIO_RECORDER_EXTENTION + " saved!", Toast.LENGTH_LONG).show();
+    } catch (IOException e) {
+      e.printStackTrace();
+    } finally {
+      try {
+        is.close();
+        os.close();
+      } catch (IOException e) {
+        e.printStackTrace();
+      }
+    }
+  }
+
+  //Dialog to show fils in working directory
+  public void showFilesDialog() {
+
+    File folder = new File(path);
+    String fs = "";
+    for (File f : folder.listFiles()) {
+      if (f.isFile() && f.getName().matches(".*\\.wav") && !f.getName().equals("temp.wav")) {
+        fs += f.getName() + "\n";
+      }
+    }
+
+    AlertDialog.Builder builder = new AlertDialog.Builder(this);
+    builder.setTitle("Existing records");
+
+    builder.setMessage(fs);
+
+    // Set up the buttons
+    builder.setPositiveButton("OK", new DialogInterface.OnClickListener() {
+      @Override
+      public void onClick(DialogInterface dialog, int which) {
+        dialog.cancel();
+      }
+    });
+
+    builder.show();
   }
 
 }
+
