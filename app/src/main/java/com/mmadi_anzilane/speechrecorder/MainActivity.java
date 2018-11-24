@@ -1,7 +1,6 @@
 package com.mmadi_anzilane.speechrecorder;
 
 import android.Manifest;
-import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
@@ -15,10 +14,8 @@ import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
-import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageButton;
-import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.IOException;
@@ -42,35 +39,37 @@ public class MainActivity extends AppCompatActivity {
   EditText mFile;
   EditText start;
 
+  /*********************************************************************************
+  ****************** BACKEND FUNCTIONS : WRITE, CONVERT & SAVE ********************
+  ****************** FAIT PAR           Kruglov Nikita          *******************
+  *********************************************************************************/
+
   private boolean conflitAction = false;
   private boolean noRecord = false;
 
   private static final int RECORDER_BPP = 16;
-  private static final String AUDIO_RECORDER_TEMP_FILE = "temp.raw";
-  private static final String AUDIO_RECORDER_TEMP_FILE_TEMP = "temp.wav";
-  private static final String AUDIO_RECORDER_TEMP_FILE_PLAYABLE = "temp.3gp";
+  private static final String AUDIO_RECORDER__RAW_TEMP_FILE = "temp.raw"; //raw file
+  private static final String AUDIO_RECORDER_WAV_TEMP_FILE = "temp.wav"; //result wav file
+  private static final String AUDIO_RECORDER_3GP_TEMP_FILE = "temp.3gp"; //playable sample
+  private static final String AUDIO_RECORDER_EXTENTION = ".wav"; //playable sample
+  //16kHz, mono, 16 bit
   private static final int RECORDER_SAMPLERATE = 16000;
   private static final int RECORDER_CHANNELS = AudioFormat.CHANNEL_IN_MONO;
   private static final int RECORDER_AUDIO_ENCODING = AudioFormat.ENCODING_PCM_16BIT;
 
   private static final int REQUEST_PERMISSION_CODE = 112;
 
-  private static final String LOG_TAG = "record/play";
   private static String mFileName = null;
   private static String path = null;
 
-  //private RecordButton mRecordButton = null;
+  //Recorder
   private AudioRecord mRecorder = null;
   private MediaRecorder mRecorderPlayable = null;
   private int bufferSize = 0;
-  private Button recordButton = null;
 
-  //private PlayButton   mPlayButton = null;
+  //Player
   private MediaPlayer   mPlayer = null;
-  private Button playButton = null;
 
-  private boolean permissionToRecordAccepted = false;
-  private String [] permissions = {Manifest.permission.RECORD_AUDIO};
 
   /****************** CHECKING/RETRIEVING PERMISSIONS **********************/
   @Override
@@ -81,13 +80,13 @@ public class MainActivity extends AppCompatActivity {
         if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED)
           Toast.makeText(this, "The app received permissions ", Toast.LENGTH_LONG).show();
         else {
+          //No permissions
+          //TODO Bug : permission should be requested multiple times, not once
           Toast.makeText(this, "The app did not receive permissions ", Toast.LENGTH_LONG).show();
           finish();
         }
         break;
     }
-    if (!permissionToRecordAccepted ) finish();
-
   }
 
   private boolean checkPermissions() {
@@ -102,7 +101,7 @@ public class MainActivity extends AppCompatActivity {
 
   public void askPermissions() {
     if (!(checkPermissions())) {
-      // Permission is not granted
+      // Permission is not granted - request
       ActivityCompat.requestPermissions(this,new String[]{
               Manifest.permission.WRITE_EXTERNAL_STORAGE,
               Manifest.permission.RECORD_AUDIO},
@@ -110,17 +109,18 @@ public class MainActivity extends AppCompatActivity {
     }
   }
 
-  /*********** RECORD ****************/
+  /************** RECORD ****************/
   private boolean recordActive = false;
   private Thread recordingThread = null;
 
 
   private void recordStart() {
     mRecorder = new AudioRecord(MediaRecorder.AudioSource.MIC, RECORDER_SAMPLERATE, RECORDER_CHANNELS, RECORDER_AUDIO_ENCODING, bufferSize);
+    bufferSize = AudioRecord.getMinBufferSize(RECORDER_SAMPLERATE, RECORDER_CHANNELS, RECORDER_AUDIO_ENCODING);
     mRecorderPlayable = new MediaRecorder();
     mRecorderPlayable.setAudioSource(MediaRecorder.AudioSource.MIC);
     mRecorderPlayable.setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP);
-    mRecorderPlayable.setOutputFile(path + AUDIO_RECORDER_TEMP_FILE_PLAYABLE);
+    mRecorderPlayable.setOutputFile(path + AUDIO_RECORDER_3GP_TEMP_FILE);
     mRecorderPlayable.setAudioEncoder(MediaRecorder.AudioEncoder.AMR_NB);
 
     recordingThread = new Thread(new Runnable() {
@@ -129,12 +129,12 @@ public class MainActivity extends AppCompatActivity {
       public void run() {
         writeAudioDataToFile();
       }
-    },"AudioRecorder Thread");
+    },"Recorder Thread");
 
     try {
       mRecorderPlayable.prepare();
     } catch (IOException e) {
-      Log.e(LOG_TAG, "prepare() failed");
+      Log.e("recorder", "prepare() failed");
     }
 
     mRecorderPlayable.start();
@@ -158,7 +158,8 @@ public class MainActivity extends AppCompatActivity {
       mRecorderPlayable.release();
       mRecorderPlayable = null;
     }
-    createWavFile(path + AUDIO_RECORDER_TEMP_FILE,path + AUDIO_RECORDER_TEMP_FILE_TEMP);
+
+    createWavFile(path + AUDIO_RECORDER__RAW_TEMP_FILE,path + AUDIO_RECORDER_WAV_TEMP_FILE);
     //deleteTemps();
   }
 
@@ -181,16 +182,18 @@ public class MainActivity extends AppCompatActivity {
   }
 
   private void deleteTemps() {
-    File file = new File(path + AUDIO_RECORDER_TEMP_FILE);
+    File file = new File(path + AUDIO_RECORDER__RAW_TEMP_FILE);
     file.delete();
-    file = new File(path + AUDIO_RECORDER_TEMP_FILE_PLAYABLE);
+    file = new File(path + AUDIO_RECORDER_3GP_TEMP_FILE);
     file.delete();
   }
 
+  /* Functions nesessary to store and convert files*/
   private void writeAudioDataToFile(){
     byte data[] = new byte[bufferSize];
-    String filename = path + AUDIO_RECORDER_TEMP_FILE;
+    String filename = path + AUDIO_RECORDER__RAW_TEMP_FILE;
     FileOutputStream os = null;
+    int read = 0;
 
     try {
       os = new FileOutputStream(filename);
@@ -198,12 +201,10 @@ public class MainActivity extends AppCompatActivity {
       e.printStackTrace();
     }
 
-    int read = 0;
-
-    if(null != os){
+    if(os != null){
       while(recordActive){
+        //Read a part of data
         read = mRecorder.read(data, 0, bufferSize);
-
         if(AudioRecord.ERROR_INVALID_OPERATION != read){
           try {
             os.write(data);
@@ -251,12 +252,10 @@ public class MainActivity extends AppCompatActivity {
 
       Log.e("converter","File size: " + totalDataLen);
 
-      WriteWaveFileHeader(out, totalAudioLen, totalDataLen,
-          longSampleRate, channels, byteRate);
+      writeHeader(out, totalAudioLen, totalDataLen, longSampleRate, channels, byteRate);
 
-      while(in.read(data) != -1){
+      while(in.read(data) != -1)
         out.write(data);
-      }
 
       in.close();
       out.close();
@@ -268,7 +267,7 @@ public class MainActivity extends AppCompatActivity {
     return true;
   }
 
-  private void WriteWaveFileHeader(
+  private void writeHeader(
       FileOutputStream out, long totalAudioLen,
       long totalDataLen, long longSampleRate, int channels,
       long byteRate) throws IOException {
@@ -326,19 +325,18 @@ public class MainActivity extends AppCompatActivity {
 
 
 
-
-
   /****************** PLAYING RECORDS ********************/
   private boolean playerActive = false;
 
   private void startPlaying() {
     mPlayer = new MediaPlayer();
     try {
-      mPlayer.setDataSource(path + AUDIO_RECORDER_TEMP_FILE_PLAYABLE);
+      mPlayer.setDataSource(path + AUDIO_RECORDER_3GP_TEMP_FILE);
       mPlayer.prepare();
       mPlayer.start();
     } catch (IOException e) {
-      Log.e(LOG_TAG, "prepare() failed");
+      Toast.makeText(this, "No record to Play", Toast.LENGTH_LONG).show();
+      playerActive = false;
     }
   }
 
@@ -363,6 +361,12 @@ public class MainActivity extends AppCompatActivity {
     }
   }
 
+  /*********************************************************************************
+   ****************** FRONTEND FUNCTIONS : FILES, WINDOWS, LISTENERS ***************
+   ****************** FAIT PAR           Mmadi Anzilane          *******************
+   *********************************************************************************/
+
+  /****************** LISTENERS ********************/
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
@@ -381,8 +385,6 @@ public class MainActivity extends AppCompatActivity {
       Log.e("working directiry","Something very bad just happend");
       finish();
     }
-
-    bufferSize = AudioRecord.getMinBufferSize(RECORDER_SAMPLERATE, RECORDER_CHANNELS, RECORDER_AUDIO_ENCODING);
 
     //saisie
     mFile = findViewById(R.id.fileName);
@@ -405,7 +407,7 @@ public class MainActivity extends AppCompatActivity {
     onDelete();
 
   }
-
+  /****************** LISTENERS ********************/
   @Override
   public void onStop() {
     super.onStop();
@@ -463,8 +465,8 @@ public class MainActivity extends AppCompatActivity {
           InputStream is = null;
           OutputStream os = null;
           try {
-            is = new FileInputStream(path + AUDIO_RECORDER_TEMP_FILE_TEMP);
-            os = new FileOutputStream(path + mFileName);
+            is = new FileInputStream(path + AUDIO_RECORDER_WAV_TEMP_FILE);
+            os = new FileOutputStream(path + mFileName + AUDIO_RECORDER_EXTENTION);
             byte[] buffer = new byte[1024];
             int length;
             while ((length = is.read(buffer)) > 0) {
