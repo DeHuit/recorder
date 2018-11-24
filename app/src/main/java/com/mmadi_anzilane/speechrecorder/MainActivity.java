@@ -115,8 +115,8 @@ public class MainActivity extends AppCompatActivity {
 
 
   private void recordStart() {
-    mRecorder = new AudioRecord(MediaRecorder.AudioSource.MIC, RECORDER_SAMPLERATE, RECORDER_CHANNELS, RECORDER_AUDIO_ENCODING, bufferSize);
     bufferSize = AudioRecord.getMinBufferSize(RECORDER_SAMPLERATE, RECORDER_CHANNELS, RECORDER_AUDIO_ENCODING);
+    mRecorder = new AudioRecord(MediaRecorder.AudioSource.MIC, RECORDER_SAMPLERATE, RECORDER_CHANNELS, RECORDER_AUDIO_ENCODING, bufferSize);
     mRecorderPlayable = new MediaRecorder();
     mRecorderPlayable.setAudioSource(MediaRecorder.AudioSource.MIC);
     mRecorderPlayable.setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP);
